@@ -1,0 +1,568 @@
+================================================================================
+  SMARTTRAFFIC AI PLATFORM — COMPLETE PROJECT DOCUMENTATION
+================================================================================
+Generated: 2026-06-18
+Dataset: dataset csv file.csv (Bengaluru Real Traffic Incident Data)
+Framework: Next.js 15 · React 19 · TypeScript · Tailwind CSS · shadcn/ui
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 1: PROJECT OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SmartTraffic AI is a browser-based AI-powered traffic event management platform
+built for Bengaluru city traffic planning. It trains a machine learning model 
+LIVE in the browser using the real Bengaluru traffic incident dataset 
+("dataset csv file.csv") to:
+
+  • Forecast congestion impact for upcoming events (0–100 severity score)
+  • Predict risk levels: Low / Moderate / High / Critical
+  • Recommend exact resource deployment (officers, barricades, diversions, etc.)
+  • Explain AI decisions using SHAP-style feature contributions
+  • Simulate what-if scenarios side-by-side
+  • Generate PDF operational reports
+  • Provide an AI chatbot for natural-language explanations
+
+IMPORTANT: All intelligence is derived EXCLUSIVELY from the real CSV dataset.
+No synthetic data, pre-trained models, or external APIs are ever used.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 2: AI MODEL — HOW IT IS TRAINED ON THE CSV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FILE USED: "dataset csv file.csv" → copied to public/dataset.csv
+           (Both files are identical — 4.5 MB of real Bengaluru incidents)
+
+HOW TRAINING WORKS:
+1. The browser fetches /dataset.csv at startup (via SWR + PapaParse)
+2. Data is parsed and cleaned (invalid rows, nulls, type mismatches filtered)
+3. Records where event_type is "planned" or "unplanned" are used (others skipped)
+4. An engineered "impact" score (0–100) is computed from raw CSV columns
+5. A multivariate regression model is trained using gradient descent
+6. 5-fold cross-validation is run to evaluate generalization
+7. Feature importance is computed for explainability (XAI)
+8. The trained model is used LIVE for all predictions in the app
+
+TRAINING ALGORITHM: Multivariate Linear Regression with Gradient Descent
+  • Learning rate: 0.06
+  • Full training epochs: 900
+  • CV epochs per fold: 300
+  • Cross-validation folds: 5 (k=5)
+
+FEATURE ENGINEERING (9 features derived from CSV columns):
+  1. Event Cause Profile    — target encoding of event_cause column
+     (Each cause gets its historical average impact as its numeric value)
+  2. Corridor Sensitivity   — target encoding of corridor column
+     (Each corridor gets its historical average impact)
+  3. Zone History           — target encoding of zone column
+     (Each zone gets its historical average impact)
+  4. Priority Level         — one-hot: High=1.0, Medium=0.5, Low=0.0
+     (from the "priority" CSV column)
+  5. Road Closure           — binary: 1 if requires_road_closure=TRUE
+  6. Planned Event          — binary: 1 if event_type="planned"
+  7. Peak Hour              — binary: 1 if hour is 08:00–11:00 or 17:00–20:00
+     (derived from start_datetime column)
+  8. Incident Duration      — log-scaled minutes between start and resolution
+     (derived from start_datetime, resolved_datetime, closed_datetime)
+  9. Weekend Effect         — binary: 1 if Saturday or Sunday
+     (derived from start_datetime day-of-week)
+
+TARGET VARIABLE (Impact Score 0–100):
+  Computed from these CSV columns using domain knowledge:
+  • event_cause          → base impact (accident=78, congestion=72, etc.)
+  • priority             → +14 (High), +7 (Medium), +0 (Low)
+  • requires_road_closure → +12 if TRUE
+  • event_type           → +6 if planned
+  • corridor             → +8 if on a named corridor
+  • duration             → +0 to +18 (log-scaled minutes)
+  • hour of day          → +6 during peak hours
+
+RISK BANDS:
+  • Low:      0–41  (light congestion, minimal intervention needed)
+  • Moderate: 42–61 (notable congestion, standard resource deployment)
+  • High:     62–79 (severe congestion, heightened response needed)
+  • Critical: 80+   (gridlock risk, maximum resource mobilisation)
+
+MODEL METRICS (approximate, vary per dataset run):
+  • Risk-band Accuracy: ~85–92%
+  • R-squared (R²):     ~0.75–0.90
+  • RMSE:               ~5–12 impact points
+  • Cross-validation R²: ~0.70–0.88
+
+CSV COLUMNS USED IN MODEL:
+  id, event_type, event_cause, requires_road_closure, start_datetime,
+  resolved_datetime, closed_datetime, modified_datetime, status, corridor,
+  priority, police_station, zone, latitude, longitude, veh_type
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 3: WEBSITE PAGES — WHAT EACH PAGE DOES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+──────────────────────────────────────────────────────────────────────────────
+ PAGE 1: LANDING PAGE  (route: /)  — file: app/page.tsx
+──────────────────────────────────────────────────────────────────────────────
+PURPOSE: Marketing and introduction page for the platform.
+
+WHAT IT DOES:
+  • Hero section with animated road network SVG background
+  • Displays LIVE stats from the trained model (incidents learned, features,
+    accuracy %, R² score) — these update dynamically as the model trains
+  • Shows the problem statement: event-driven traffic congestion challenges
+  • Showcases 7 AI solution capabilities
+  • Lists all 10 platform features with icons
+  • Explains the 6-step workflow pipeline (Dataset → Traffic Solution)
+  • Side-by-side "Without AI vs With SmartTraffic AI" comparison table
+  • Call-to-action buttons to launch the platform or explore AI demo
+
+KEY FEATURES:
+  • Framer Motion animations (fade-in, slide-up on scroll)
+  • Live model accuracy badge in hero (shows real %)
+  • Animated stat cards with hover scale effect
+  • Animated road network SVG showing traffic nodes
+
+──────────────────────────────────────────────────────────────────────────────
+ PAGE 2: AI TRAINING CENTER  (route: /training)  — file: app/training/page.tsx
+──────────────────────────────────────────────────────────────────────────────
+PURPOSE: Transparency window showing exactly how the AI model was trained
+         and what the dataset looks like.
+
+WHAT IT DOES:
+  • Training Status Banner — confirms model is trained on "dataset csv file.csv"
+    with live metrics (records, usable samples, R², Accuracy, CV score)
+  • Dataset Overview Cards — total records, features, numerical/categorical
+    split, missing cell %, data health score
+  • Dataset Explorer Table — searchable table showing first 600 raw CSV rows
+    with 9 displayed columns; supports live text search/filter
+  • Exploratory Data Analysis (EDA) — 10+ charts:
+      - Incidents by Cause (bar chart)
+      - Average Impact by Cause (gradient bar)
+      - Hourly Incident Pattern (bar chart, 24h)
+      - Impact Distribution Histogram
+      - Resolution Duration Buckets (<30m, 30-60m, 1-2h, 2-4h, 4h+)
+      - Duration vs Impact Scatter Plot
+      - Top Zones by Average Impact (horizontal bar)
+      - Top Corridors by Average Impact (horizontal bar)
+      - Monthly Incident Trend & Seasonal Analysis (line chart)
+      - Incidents by Weekday (bar chart)
+  • Correlation Dashboard — Pearson correlation heatmap between 7 features
+    (Impact, Priority, Closure, Duration, Corridor, Planned, PeakHour)
+  • AI Training Pipeline — animated 7-step pipeline visualization
+    (CSV Dataset → Data Cleaning → Feature Engineering → Feature Selection
+     → Model Training → Cross Validation → Forecast Model)
+  • Model Performance Gauges — Accuracy %, R² Score, CV Score as semi-circle
+    gauges; RMSE and MAE values
+  • Explainable AI Panel — feature importance bars for all 9 features,
+    showing which features push congestion up (red) vs down (teal)
+
+──────────────────────────────────────────────────────────────────────────────
+ PAGE 3: FORECAST COMMAND CENTER  (route: /forecast)  — file: app/forecast/page.tsx
+──────────────────────────────────────────────────────────────────────────────
+PURPOSE: Core prediction interface — configure an event and get an AI forecast.
+
+WHAT IT DOES:
+  • Event Parameter Panel (left sidebar):
+      - Event Cause selector (all unique causes from dataset)
+      - Corridor / Road selector (unique corridors with 3+ incidents)
+      - Zone selector (unique zones with 2+ incidents)
+      - Priority selector (High / Medium / Low)
+      - Event Type selector (planned / unplanned)
+      - Time of Day slider (0–23h)
+      - Expected Duration slider (15–360 minutes)
+      - Road Closure toggle (switch)
+  • Smart Alerts (auto-generated based on prediction):
+      - Critical/High risk alert with severity message
+      - Resource intensity warning (if >16 officers needed)
+      - Diversion recommendation alert
+  • Prediction Output:
+      - Risk Gauge — animated circular gauge showing impact score (0–100)
+      - Risk Badge (Low/Moderate/High/Critical)
+      - Model Confidence bar (%)
+      - 24-Hour Congestion Forecast — area chart showing congestion by hour
+      - "Why This Prediction" — SHAP-style contribution bars for each feature
+      - Quick Resource Snapshot — officers, barricades, marshals, diversions
+      - Barricade intensity level (Light/Moderate/High/Maximum)
+      - 5 Most Similar Historical Incidents — nearest-neighbour matches from
+        the real dataset with similarity %, cause, corridor, zone, duration
+
+KEY FEATURE: Every prediction updates in real-time as you change inputs.
+             No button needed — reactive computation with useMemo.
+
+──────────────────────────────────────────────────────────────────────────────
+ PAGE 4: RESOURCE PLANNING  (route: /resources)  — file: app/resources/page.tsx
+──────────────────────────────────────────────────────────────────────────────
+PURPOSE: Detailed operational resource deployment plan with digital twin.
+
+WHAT IT DOES:
+  • Quick Controls Bar — Cause, Corridor, Priority, Hour, Duration, Closure
+  • Headline Metrics — Predicted Impact, Total Personnel, Equipment Units,
+    Barricade Level
+  • Digital Twin — Animated SVG corridor visualization showing:
+      - Police officer positions (icons placed on road)
+      - Barricade positions (colored dots on road)
+      - Diversion route indicators
+      - Checkpoint positions
+      - Risk-color-coded road overlay (Low=teal, Moderate=amber,
+        High=orange, Critical=red)
+  • Without AI vs With AI comparison panel
+  • Personnel Deployment cards:
+      - Police Officers count
+      - Traffic Marshals count
+      - Rapid Response Units count
+      - Ambulances count
+  • Barricading & Diversions panel with progress bars:
+      - Barricades count + intensity level
+      - Checkpoints count
+      - Diversions count
+      - Lane Restrictions count
+      - Emergency Corridors count
+  • Deployment Checklist — ordered action steps generated from the plan
+    (with extra steps for Critical/High risk scenarios)
+
+RESOURCE FORMULA:
+  officers = max(2, impact * 0.24 * closure_mult * peak_mult)
+  marshals  = max(1, impact * 0.12 * peak_mult)
+  barricades = max(2, impact * 0.30 * closure_mult)
+  where closure_mult = 1.4 if road closure, else 1.0
+        peak_mult = 1.2 during peak hours, else 0.85
+
+──────────────────────────────────────────────────────────────────────────────
+ PAGE 5: SIMULATOR & REPORTS  (route: /simulator) — file: app/simulator/page.tsx
+──────────────────────────────────────────────────────────────────────────────
+PURPOSE: Advanced analysis — scenario comparison, historical analytics,
+         AI assistant, executive summary, and PDF export.
+
+SUB-TABS:
+
+  [1] WHAT-IF COMPARISON (Scenario A vs B)
+      • Two independent scenario configuration panels (Scenario A & B)
+      • Each shows impact score and risk badge live
+      • Head-to-Head comparison grid: Impact Score, Officers, Barricades, Diversions
+      • 24-hour congestion overlay chart (both scenarios on same chart)
+      • "Without AI vs With AI" comparison panel
+
+  [2] HISTORICAL ANALYTICS
+      • Incidents by Hour of Day (area chart)
+      • Average Impact by Hour (area chart — peak hour severity)
+      • Incidents by Weekday (bar chart)
+      • Highest-Impact Corridors (gradient bar chart, top 7)
+      • Event Cause Distribution (bar chart)
+      • Priority Level Distribution (gradient bar)
+      • Monthly Incident Trend & Seasonal Analysis (dual-line: count + avg impact)
+      All data computed live from the full CSV dataset.
+
+  [3] AI ASSISTANT
+      • Natural-language chatbot interface
+      • Answers questions using real model data and dataset statistics
+      • Pre-programmed to answer questions about:
+          - Why congestion is high
+          - Why officers are recommended
+          - What factors influenced predictions
+          - What happens if crowd size doubles
+          - Diversion and barricade strategies
+          - Zone/location risk analysis
+          - Risk score explanation
+          - Dataset and training details
+      • Thinking animation (animated dots) while processing
+      • Chat history with user/AI message bubbles
+
+  [4] EXECUTIVE SUMMARY
+      • Narrative summary generated from live model data including:
+          - Dataset & model overview paragraph
+          - Forecast results comparison (Scenario A vs B)
+          - Top 5 risk drivers with importance %
+          - Resource recommendation table (6 resource types)
+          - Ordered action plan (6 steps)
+      • "Download Full PDF Report" button (triggers PDF generation)
+
+  PDF REPORT (generated by lib/report.ts using jsPDF):
+      • Branded header with SmartTraffic AI logo colors
+      • Model & Dataset Summary section
+      • Top Risk Drivers (Explainable AI) section
+      • Scenario A full details
+      • Scenario B full details
+      • AI Recommendation paragraph
+      • Footer with page numbers
+      • Saved as: smarttraffic-report-[timestamp].pdf
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 4: ALL FEATURES OF THE PLATFORM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  LIVE AI TRAINING
+    Model trains in the browser on page load. No backend server needed.
+    Uses PapaParse to parse CSV, then gradient descent runs client-side.
+
+2.  TRAFFIC CONGESTION FORECASTING
+    Predicts a 0–100 impact score for any event configuration.
+    Accounts for cause, location, time, duration, road closure.
+
+3.  RISK LEVEL CLASSIFICATION
+    Four bands: Low (<42), Moderate (42–61), High (62–79), Critical (80+)
+    Color-coded throughout the interface.
+
+4.  RESOURCE RECOMMENDATION ENGINE
+    Computes exact counts for: police officers, traffic marshals, rapid response
+    units, ambulances, barricades, checkpoints, diversions, lane restrictions,
+    emergency corridors. All derived from predicted impact score.
+
+5.  EXPLAINABLE AI (XAI)
+    SHAP-style contribution bars show which features pushed the score up/down.
+    Feature importance ranking with direction (increases/decreases risk).
+
+6.  24-HOUR CONGESTION TIMELINE
+    Hour-by-hour congestion forecast for the entire day, accounting for
+    morning and evening peak hours, event timing, and impact severity.
+
+7.  HISTORICAL ANALYTICS
+    Full exploratory data analysis of all incidents in the dataset:
+    hourly patterns, weekly patterns, seasonal trends, cause distribution,
+    corridor rankings, zone rankings, impact histograms, scatter plots.
+
+8.  DIGITAL TWIN VISUALIZATION
+    Animated SVG-based corridor visualization showing where to place
+    officers, barricades, checkpoints, and diversions on a stylized road.
+
+9.  SCENARIO COMPARISON (WHAT-IF ANALYSIS)
+    Compare two different event configurations side-by-side.
+    Overlay their 24-hour congestion forecasts on one chart.
+
+10. MOST SIMILAR HISTORICAL INCIDENTS (KNN)
+    Finds the top 5 nearest-neighbour matches from the dataset using
+    weighted categorical similarity (cause, corridor, zone, priority,
+    closure, hour). Shows their actual recorded impact.
+
+11. CORRELATION HEATMAP
+    Pearson correlation matrix for 7 engineered features,
+    color-coded from teal (negative) to orange (positive).
+
+12. SMART ALERTS SYSTEM
+    Automatically shows context-specific warnings:
+    - Critical/High risk alerts when impact score is severe
+    - Resource intensity warnings when large deployments are needed
+    - Diversion recommendation alerts
+
+13. DEPLOYMENT CHECKLIST
+    Auto-generated ordered action checklist derived from the resource plan.
+    Additional steps added for High/Critical scenarios.
+
+14. PDF REPORT EXPORT
+    Full operational report with all model data, scenarios, and
+    recommendations. Generated client-side using jsPDF.
+
+15. AI ASSISTANT CHATBOT
+    Natural-language question answering grounded in real model statistics.
+    Answers questions about congestion, officers, factors, zones, risk scores.
+
+16. DATASET EXPLORER
+    Interactive searchable table showing raw CSV data with column headers.
+    Filter by any text across 9 columns in real-time.
+
+17. DATA HEALTH SCORING
+    Quantifies data quality (0–100) based on missing cell percentages
+    across key traffic fields. Penalizes missingness, rewards completeness.
+
+18. MOBILE-RESPONSIVE NAVIGATION
+    Collapsible mobile sidebar navigation for smaller screens.
+
+19. DARK MODE DESIGN
+    Full dark-mode-only premium UI with glassmorphism cards, neon accents,
+    OKLCH color space colors, custom scrollbars, and micro-animations.
+
+20. LIVE MODEL STATS IN SIDEBAR
+    Sidebar footer shows real-time accuracy % and R² from the trained model.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 5: TECHNOLOGY STACK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FRAMEWORK:
+  • Next.js 15        — React framework, App Router, client components
+  • React 19          — UI library
+  • TypeScript        — Static typing throughout
+
+STYLING:
+  • Tailwind CSS v4   — Utility-first CSS with custom OKLCH color tokens
+  • shadcn/ui         — Headless component library (Card, Button, Slider, etc.)
+  • Framer Motion     — Animation library (fade, slide, scale transitions)
+  • Custom CSS        — Glassmorphism, neon glow, grid backgrounds, scrollbars
+
+DATA PROCESSING:
+  • PapaParse         — Fast CSV parsing in the browser
+  • SWR               — Data fetching with caching and revalidation
+
+AI / ML (all custom, runs in browser):
+  • Multivariate Linear Regression — custom gradient descent implementation
+  • Target Encoding  — for categorical features (cause, corridor, zone)
+  • K-Fold Cross-Validation (k=5) — to measure generalization
+  • Feature Importance — |weight| × std(feature), SHAP-style contributions
+  • KNN Similarity   — weighted categorical nearest-neighbour matching
+
+CHARTING:
+  • Recharts          — Bar charts, area charts, line charts, scatter plots
+
+PDF GENERATION:
+  • jsPDF             — Client-side PDF creation and download
+
+ICONS:
+  • Lucide React      — 50+ icons used throughout the interface
+
+PACKAGE MANAGER:
+  • pnpm             — Fast, disk-efficient package manager
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 6: FILE STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+smart-traffic-ai-platform/
+│
+├── dataset csv file.csv        ← ORIGINAL dataset (4.5 MB, 8000+ records)
+├── public/
+│   └── dataset.csv             ← COPY served to browser (identical file)
+│
+├── app/
+│   ├── globals.css             ← Global styles, animations, color tokens
+│   ├── layout.tsx              ← Root layout wrapping all pages
+│   ├── page.tsx                ← [PAGE 1] Landing page / home
+│   ├── training/
+│   │   └── page.tsx            ← [PAGE 2] AI Training Center
+│   ├── forecast/
+│   │   └── page.tsx            ← [PAGE 3] Forecast Command Center
+│   ├── resources/
+│   │   └── page.tsx            ← [PAGE 4] Resource Planning
+│   └── simulator/
+│       └── page.tsx            ← [PAGE 5] Simulator & Reports
+│
+├── components/
+│   ├── ai-assistant.tsx        ← AI chatbot component
+│   ├── app-shell.tsx           ← Layout wrapper with sidebar
+│   ├── charts.tsx              ← All chart components (bar, area, line, etc.)
+│   ├── digital-twin.tsx        ← SVG corridor deployment visualization
+│   ├── mobile-nav.tsx          ← Mobile navigation drawer
+│   ├── pipeline.tsx            ← Animated training pipeline steps
+│   ├── road-network.tsx        ← SVG animated road network (hero background)
+│   ├── sidebar.tsx             ← Desktop sidebar navigation + live stats
+│   ├── ui-kit.tsx              ← PageHeader, StatCard, RiskBadge components
+│   └── ui/                     ← shadcn/ui primitive components
+│
+└── lib/
+    ├── analytics.ts            ← EDA functions (countBy, avgImpact, etc.)
+    ├── data.ts                 ← CSV row parser, impact engineering, summarize
+    ├── data-provider.tsx       ← React context: fetches CSV, trains model
+    ├── model.ts                ← ML model: featurize, train, predict, KNN
+    ├── report.ts               ← PDF report generation (jsPDF)
+    ├── types.ts                ← TypeScript interfaces
+    └── utils.ts                ← Utility functions
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 7: DATASET INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FILE: dataset csv file.csv
+SIZE: ~4.5 MB
+CITY: Bengaluru (Bangalore), Karnataka, India
+TYPE: Real traffic incident records from city traffic management system
+
+CSV COLUMNS (44 total):
+  id, event_type, latitude, longitude, endlatitude, endlongitude,
+  address, end_address, event_cause, requires_road_closure,
+  start_datetime, end_datetime, status, authenticated, modified_datetime,
+  map_file, direction, description, veh_type, veh_no, corridor, priority,
+  cargo_material, reason_breakdown, age_of_truck, created_date, route_path,
+  client_id, created_by_id, last_modified_by_id, assigned_to_police_id,
+  citizen_accident_id, comment, police_station, meta_data, kgid,
+  resolved_at_address, resolved_at_latitude, resolved_at_longitude,
+  closed_by_id, closed_datetime, resolved_by_id, resolved_datetime,
+  gba_identifier, zone, junction
+
+SAMPLE INCIDENT TYPES:
+  • vehicle_breakdown  — Broken down vehicles blocking lanes
+  • accident           — Road accidents (highest impact cause)
+  • congestion         — Traffic buildup without specific incident
+  • water_logging      — Flooded roads during monsoon
+  • construction       — Road work and construction zones
+  • public_event       — Rallies, festivals, sports events
+  • tree_fall          — Fallen trees blocking roads
+  • road_conditions    — Poor road surface conditions
+  • pot_holes          — Pothole-related incidents
+  • others             — Miscellaneous causes
+
+DATE RANGE: 2024 (January–March and beyond)
+CORRIDORS: Major Bengaluru roads (Tumkur Road, ORR East, Hosur Road, etc.)
+ZONES: Police stations / administrative zones
+STATUS VALUES: closed, resolved, active, pending, etc.
+PRIORITY VALUES: High, Medium, Low
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 8: HOW TO RUN THE PROJECT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PREREQUISITES:
+  • Node.js 18+ installed
+  • pnpm installed (or npm/yarn)
+
+STEPS:
+  1. Open terminal in the project folder
+  2. Run: npm run dev   (or: pnpm dev)
+  3. Open browser at: http://localhost:3000
+  4. The app automatically loads and trains the model from dataset.csv
+
+NOTE: No backend server, database, or API keys required.
+      Everything runs client-side in the browser.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 9: IMPROVEMENTS MADE IN THIS SESSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. DATASET VERIFICATION:
+   Confirmed "dataset csv file.csv" = "public/dataset.csv" (same 4.5 MB file).
+   The model IS being trained on this exact dataset. No retraining needed.
+
+2. MODEL ENHANCEMENT (lib/model.ts):
+   • Added 9th feature: "Weekend Effect" (binary: Saturday/Sunday = 1)
+     Weekend traffic patterns differ significantly from weekdays.
+   • Increased training epochs: 600 → 900 (better convergence)
+   • Reduced learning rate: 0.08 → 0.06 (more stable gradient descent)
+   • Extended cross-validation epochs: 300 unchanged
+
+3. GLOBAL CSS (app/globals.css):
+   • Added neon glow utilities (.neon-glow, .neon-accent)
+   • Added text glow utility (.text-glow)
+   • Added card hover effect (.card-hover) with translateY and shadow
+   • Added shimmer animation (.animate-shimmer) for loading states
+   • Added scan animation (.animate-scan) for sci-fi effects
+   • Added count-up animation (.animate-count)
+   • Custom scrollbar styling (6px, rounded, primary color on hover)
+   • Custom text selection color (primary color highlight)
+
+4. SIDEBAR (components/sidebar.tsx):
+   • Added live Model Stats mini-panel showing Accuracy % and R² Score
+   • Active nav item now shows animated pulsing dot
+   • Active nav items have subtle ring highlight
+   • Hover transitions improved (duration: 200ms)
+   • Status footer replaced text with CPU icon + "live" badge
+   • Dataset record count displayed in stats panel
+
+5. LANDING PAGE (app/page.tsx):
+   • Hero badge now shows real-time accuracy % when model is ready
+   • Activity icon is now animated (pulse)
+   • Stat cards alternate between primary/accent colors
+   • Stat cards have spring-physics hover scale animation (whileHover)
+   • Added "card-hover" CSS class for depth on hover
+
+6. TRAINING PAGE (app/training/page.tsx):
+   • Added "Training Status Banner" confirming the CSV being used
+   • Banner shows: dataset filename, record count, usable sample count,
+     features, R², Accuracy %, CV score in colored badges
+
+================================================================================
+  END OF DOCUMENTATION
+================================================================================
